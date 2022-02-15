@@ -28,7 +28,7 @@ type Provider struct {
 // GetConfigurations gets the virtual branch configurations from the GitHub Provider
 func (g Provider) GetConfigurations(ctx context.Context) ([]provider.VirtualBranchConfig, error) {
 	var allConfigs []provider.VirtualBranchConfig
-	_, err := g.getExistingBranches(ctx)
+	branches, err := g.getExistingBranches(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +45,23 @@ func (g Provider) GetConfigurations(ctx context.Context) ([]provider.VirtualBran
 			fmt.Println(err)
 			continue
 		}
+
+		err = validateConfiguration(config, branches)
+		if err != nil {
+			// TODO what about this one?
+			fmt.Println(err)
+			continue
+		}
+
 		allConfigs = append(allConfigs, config)
 		spew.Dump(config)
 	}
 	return allConfigs, nil
+}
+
+func (g Provider) ApplyConfigurations(ctx context.Context, configs []provider.VirtualBranchConfig) ([]error, error) {
+	// TODO implement me
+	panic("implement me")
 }
 
 func (g Provider) getAllIssues(ctx context.Context) ([]*github.Issue, error) {
@@ -75,28 +88,6 @@ func (g Provider) getAllIssues(ctx context.Context) ([]*github.Issue, error) {
 	return allIssues, nil
 }
 
-func (g Provider) validateConfiguration(config provider.VirtualBranchConfig, branches util.StringLookup) (err error) {
-	var searchBranches []string
-	searchBranches = append(searchBranches, config.Base)
-	searchBranches = append(searchBranches, config.Track...)
-	err = validateBranchesExist(branches, searchBranches...)
-	if err != nil {
-		return
-	}
-
-	return nil
-}
-
-func validateBranchesExist(branches util.StringLookup, searchBranches ...string) error {
-	for _, branch := range searchBranches {
-		if !branches[branch] {
-			return fmt.Errorf("branch does not exist: %s", branch)
-		}
-	}
-
-	return nil
-}
-
 func (g Provider) getExistingBranches(ctx context.Context) (util.StringLookup, error) {
 	branches, err := g.RepositoryClient.Branches()
 	if err != nil {
@@ -114,6 +105,35 @@ func (g Provider) getExistingBranches(ctx context.Context) (util.StringLookup, e
 		return nil, fmt.Errorf("error iterating over branches branches: %w", err)
 	}
 	return allBranches, nil
+}
+
+func validateConfiguration(config provider.VirtualBranchConfig, branches util.StringLookup) (err error) {
+	var searchBranches []string
+	searchBranches = append(searchBranches, config.Base)
+	searchBranches = append(searchBranches, config.Track...)
+	err = validateBranchesExist(branches, searchBranches...)
+	if err != nil {
+		return
+	}
+
+	// We don't want to have branches that have `/` in them. That'd mess a lot of things up.
+	if !util.ValidateTargetBranchName(config.Target) {
+		//goland:noinspection GoErrorStringFormat
+		err = fmt.Errorf("target branch name did not match the allowed characters of: a-z, A-Z, 0-9, _, -")
+		return
+	}
+
+	return nil
+}
+
+func validateBranchesExist(branches util.StringLookup, searchBranches ...string) error {
+	for _, branch := range searchBranches {
+		if !branches[branch] {
+			return fmt.Errorf("branch does not exist: %s", branch)
+		}
+	}
+
+	return nil
 }
 
 type issueBody struct {
@@ -136,13 +156,6 @@ func processIssue(issue *github.Issue) (config provider.VirtualBranchConfig, err
 
 	err = isDefinedInMeta(meta, "Target", "Base", "Track")
 	if err != nil {
-		return
-	}
-
-	// We don't want to have branches that have `/` in them. That'd mess a lot of things up.
-	if !util.ValidateTargetBranchName(issueBody.Target) {
-		//goland:noinspection GoErrorStringFormat
-		err = fmt.Errorf("target branch name did not match the allowed characters of: a-z, A-Z, 0-9, _, -")
 		return
 	}
 
