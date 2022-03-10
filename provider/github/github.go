@@ -10,19 +10,21 @@ import (
 	"github.com/aaomidi/virtual-branches-action/util"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/google/go-github/v42/github"
 )
 
 // Provider is the Provider specific to the GitHub provider
 type Provider struct {
-	GitHubClient     *github.Client
-	RepositoryClient *git.Repository
+	GitHubClient *github.Client
 
 	Owner      string
 	Repository string
 	Label      string
 	Prefix     string
+
+	RepositoryPath string
 }
 
 // GetConfigurations gets the virtual branch configurations from the GitHub Provider
@@ -60,8 +62,26 @@ func (g Provider) GetConfigurations(ctx context.Context) ([]provider.VirtualBran
 }
 
 func (g Provider) ApplyConfigurations(ctx context.Context, configs []provider.VirtualBranchConfig) ([]error, error) {
-	// TODO implement me
-	panic("implement me")
+	for _, config := range configs {
+		g.applyConfiguration(ctx, config)
+	}
+}
+
+func (g Provider) applyConfiguration(ctx context.Context, vbConfig provider.VirtualBranchConfig) error {
+	for _, track := range vbConfig.Track {
+		ref := fmt.Sprintf("refs/remotes/orign/%s", track)
+		opts := git.FetchOptions{
+			RefSpecs: []config.RefSpec{config.RefSpec(ref)},
+		}
+		err := g.RepositoryClient.FetchContext(ctx, &opts)
+		if err != nil {
+			return err
+		}
+
+		g.RepositoryClient.CommitObjects()
+
+	}
+	return nil
 }
 
 func (g Provider) getAllIssues(ctx context.Context) ([]*github.Issue, error) {
